@@ -108,53 +108,57 @@ async def track_kills():
                         else:
                             print(f"No kills data for player {player_id}")
 
-                        # Sort by most recent kill
+                        # Sort by most recent kills
                         kills_data.sort(key=lambda kill: kill['TimeStamp'], reverse=True)
-                        most_recent_kill = kills_data[0] if kills_data else None
 
-                        if most_recent_kill:
-                            kill_time = most_recent_kill['TimeStamp']
-                            kill_id = most_recent_kill.get('EventId')
+                        # Initialize player kill history if not present
+                        if player_id not in player_kills:
+                            player_kills[player_id] = {
+                                'last_kill_time': None,
+                                'last_kill_id': None,
+                                'processed_kills': set()  # New: Track processed kills
+                            }
+
+                        new_kills = [kill for kill in kills_data if kill['EventId'] not in player_kills[player_id]['processed_kills']]
+
+                        for kill in new_kills:
+                            kill_time = kill['TimeStamp']
+                            kill_id = kill.get('EventId')
 
                             # Log the kill time and ID for debugging
-                            print(f"Most recent kill time: {kill_time}, kill ID: {kill_id}")
+                            print(f"New kill time: {kill_time}, kill ID: {kill_id}")
 
-                            if player_kills[player_id]['last_kill_time'] is None or kill_time > player_kills[player_id]['last_kill_time']:
-                                print(f"New kill detected for player {player_id}")
-                                player_kills[player_id]['last_kill_time'] = kill_time
-                                player_kills[player_id]['last_kill_id'] = kill_id
+                            player_name = kill.get('Killer', {}).get('Name', 'Unknown')
+                            target_name = kill.get('Victim', {}).get('Name', 'Unknown')
+                            location = kill.get('Location', 'Unknown')
+                            timestamp = kill_time.split('.')[0] + 'Z'
+                            killboard_link = f"https://albiononline.com/killboard/kill/{kill_id}"
 
-                                player_name = most_recent_kill.get('Killer', {}).get('Name', 'Unknown')
-                                target_name = most_recent_kill.get('Victim', {}).get('Name', 'Unknown')
-                                location = most_recent_kill.get('Location', 'Unknown')
-                                timestamp = kill_time.split('.')[0] + 'Z'
-                                killboard_link = f"https://albiononline.com/killboard/kill/{kill_id}"
+                            victim_equipment = kill.get('Victim', {}).get('Equipment', {})
+                            victim_inventory = kill.get('Victim', {}).get('Inventory', {})
 
-                                victim_equipment = most_recent_kill.get('Victim', {}).get('Equipment', {})
-                                victim_inventory = most_recent_kill.get('Victim', {}).get('Inventory', {})
+                            full_inventory = {**victim_equipment, **{f'Inventory_Item_{i}': item for i, item in enumerate(victim_inventory) if item}}
 
-                                full_inventory = {**victim_equipment, **{f'Inventory_Item_{i}': item for i, item in enumerate(victim_inventory) if item}}
+                            message = (
+                                f"**New Kill Alert!**\n\n"
+                                f"**Player:** {player_name}\n"
+                                f"**Target:** {target_name}\n"
+                                f"**Location:** {location}\n"
+                                f"**Timestamp:** {timestamp}\n\n"
+                                f"Check out the kill details: [View Kill]({killboard_link})"
+                            )
+                            await channel.send(message)
 
-                                message = (
-                                    f"**New Kill Alert!**\n\n"
-                                    f"**Player:** {player_name}\n"
-                                    f"**Target:** {target_name}\n"
-                                    f"**Location:** {location}\n"
-                                    f"**Timestamp:** {timestamp}\n\n"
-                                    f"Check out the kill details: [View Kill]({killboard_link})"
-                                )
-                                await channel.send(message)
+                            # Generate inventory image and send it
+                            if full_inventory:
+                                buffer = await create_inventory_image(full_inventory)
+                                file = discord.File(buffer, filename="inventory.png")
+                                await channel.send(file=file)
 
-                                # Generate inventory image and send it
-                                if full_inventory:
-                                    buffer = await create_inventory_image(full_inventory)
-                                    file = discord.File(buffer, filename="inventory.png")
-                                    await channel.send(file=file)
+                            print(f"Kill alert sent for {player_id}.")
 
-                                print(f"Kill alert sent for {player_id}.")
-
-                    else:
-                        print(f"Failed to fetch kills for player {player_id}: {response.status}")
+                            # Mark this kill as processed
+                            player_kills[player_id]['processed_kills'].add(kill_id)
 
         except Exception as e:
             print(f"Error while fetching data for player {player_id}: {e}")
